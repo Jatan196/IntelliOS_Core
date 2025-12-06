@@ -1087,6 +1087,72 @@ async def get_local_ddna_stats():
             detail=f"Error getting local DDNA stats: {str(e)}"
         )
 
+# Sync workspace to remote cloud - core function
+def sync_workspace_to_cloud_direct(username: str, workspace_name: str, state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Direct function to sync workspace data to remote cloud DDNA database
+    Can be called programmatically without HTTP overhead
+    
+    Args:
+        username: Username for the workspace
+        workspace_name: Name of the workspace
+        state: State data containing apps, browsers, etc.
+        
+    Returns:
+        Dict with status, message, and optional response
+    """
+    try:
+        remote_api_url = "https://intellios-database.onrender.com/api/workspace"
+        
+        payload = {
+            "username": username,
+            "workspace_name": workspace_name,
+            "state": state
+        }
+        
+        logger.info(f"Syncing workspace '{workspace_name}' for user '{username}' to cloud")
+        
+        # Make request to remote API with 60 second timeout
+        response = requests.post(remote_api_url, json=payload, timeout=60)
+        
+        if response.status_code == 200 or response.status_code == 201:
+            result = response.json()
+            logger.info(f"Workspace sync successful: {result.get('message', 'Success')}")
+            return {
+                "status": "success",
+                "message": result.get("message", "Workspace synced successfully"),
+                "response": result
+            }
+        else:
+            error_msg = f"Remote API returned status {response.status_code}: {response.text}"
+            logger.error(f"Workspace sync failed: {error_msg}")
+            return {
+                "status": "error",
+                "message": error_msg
+            }
+            
+    except requests.exceptions.Timeout:
+        error_msg = "Request timed out. The remote server might be slow or unavailable."
+        logger.error(f"Workspace sync timeout: {error_msg}")
+        return {
+            "status": "error",
+            "message": error_msg
+        }
+    except requests.exceptions.ConnectionError:
+        error_msg = "Could not connect to remote server. Check your internet connection."
+        logger.error(f"Workspace sync connection error: {error_msg}")
+        return {
+            "status": "error",
+            "message": error_msg
+        }
+    except Exception as e:
+        error_msg = f"Unexpected error: {str(e)}"
+        logger.error(f"Workspace sync error: {error_msg}")
+        return {
+            "status": "error",
+            "message": error_msg
+        }
+
 # Sync workspace to remote cloud endpoint
 class SyncWorkspaceRequest(BaseModel):
     username: str
@@ -1101,7 +1167,7 @@ class SyncWorkspaceResponse(BaseModel):
 @app.post("/api/sync-workspace", response_model=SyncWorkspaceResponse, tags=["Workspace Sync"])
 async def sync_workspace_to_cloud(request: SyncWorkspaceRequest):
     """
-    Sync workspace data to remote cloud DDNA database
+    Sync workspace data to remote cloud DDNA database (HTTP endpoint wrapper)
     
     Args:
         request: SyncWorkspaceRequest containing username, workspace_name, and state
@@ -1109,57 +1175,169 @@ async def sync_workspace_to_cloud(request: SyncWorkspaceRequest):
     Returns:
         SyncWorkspaceResponse with status and message
     """
+    # Call the direct function
+    result = sync_workspace_to_cloud_direct(
+        username=request.username,
+        workspace_name=request.workspace_name,
+        state=request.state
+    )
+    
+    if result["status"] == "success":
+        return SyncWorkspaceResponse(
+            status=result["status"],
+            message=result["message"],
+            response=result.get("response")
+        )
+    else:
+        # Return error response without raising HTTPException
+        return SyncWorkspaceResponse(
+            status=result["status"],
+            message=result["message"],
+            response=None
+        )
+
+# ============================================
+# Custom Topic Management
+# ============================================
+
+def add_custom_topic_direct(topic_name: str, description: str, examples: List[str] = None) -> Dict[str, Any]:
+    """
+    Add a new user-defined custom topic to the vector database.
+    This function can be called directly from other Python code (like UI).
+    
+    Args:
+        topic_name: Unique name for the topic (e.g., "game_development", "cybersecurity")
+        description: Detailed description of what this topic represents
+        examples: Optional list of example text snippets that represent this topic
+        
+    Returns:
+        Dictionary with status, message, and topic details
+    """
     try:
-        remote_api_url = "https://intellios-database.onrender.com/api/workspace"
+        logger.info(f"Adding custom topic: {topic_name}")
         
-        payload = {
-            "username": request.username,
-            "workspace_name": request.workspace_name,
-            "state": request.state
-        }
+        # Check if vector DB is available
+        if not SERVICES_AVAILABLE.get("vector_db") or vector_db is None:
+            return {
+                "status": "error",
+                "message": "Vector database service not available"
+            }
         
-        logger.info(f"Syncing workspace '{request.workspace_name}' for user '{request.username}' to cloud")
-        
-        # Make request to remote API with 60 second timeout
-        response = requests.post(remote_api_url, json=payload, timeout=60)
-        
-        if response.status_code == 200 or response.status_code == 201:
-            result = response.json()
-            logger.info(f"Workspace sync successful: {result.get('message', 'Success')}")
-            return SyncWorkspaceResponse(
-                status="success",
-                message=result.get("message", "Workspace synced successfully"),
-                response=result
-            )
-        else:
-            error_msg = f"Remote API returned status {response.status_code}: {response.text}"
-            logger.error(f"Workspace sync failed: {error_msg}")
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=error_msg
-            )
-            
-    except requests.exceptions.Timeout:
-        error_msg = "Request timed out. The remote server might be slow or unavailable."
-        logger.error(f"Workspace sync timeout: {error_msg}")
-        raise HTTPException(
-            status_code=504,
-            detail=error_msg
+        # Call the vector_db method
+        result = vector_db.add_custom_topic(
+            topic_name=topic_name,
+            description=description,
+            examples=examples or []
         )
-    except requests.exceptions.ConnectionError:
-        error_msg = "Could not connect to remote server. Check your internet connection."
-        logger.error(f"Workspace sync connection error: {error_msg}")
-        raise HTTPException(
-            status_code=503,
-            detail=error_msg
-        )
+        
+        return result
+        
     except Exception as e:
-        error_msg = f"Unexpected error: {str(e)}"
-        logger.error(f"Workspace sync error: {error_msg}")
-        raise HTTPException(
-            status_code=500,
-            detail=error_msg
+        error_msg = f"Error adding custom topic: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "status": "error",
+            "message": error_msg
+        }
+
+def get_all_topics_direct() -> Dict[str, Any]:
+    """
+    Get all topics including custom user-defined topics.
+    This function can be called directly from other Python code (like UI).
+    
+    Returns:
+        Dictionary with all topics and their descriptions
+    """
+    try:
+        logger.info("Fetching all topics")
+        
+        # Check if vector DB is available
+        if not SERVICES_AVAILABLE.get("vector_db") or vector_db is None:
+            return {
+                "status": "error",
+                "message": "Vector database service not available",
+                "topics": {}
+            }
+        
+        # Call the vector_db method
+        result = vector_db.get_all_topics()
+        
+        return result
+        
+    except Exception as e:
+        error_msg = f"Error fetching topics: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "status": "error",
+            "message": error_msg,
+            "topics": {}
+        }
+
+# Request/Response models for custom topics
+class AddCustomTopicRequest(BaseModel):
+    topic_name: str
+    description: str
+    examples: Optional[List[str]] = None
+
+class CustomTopicResponse(BaseModel):
+    status: str
+    message: str
+    topic: Optional[Dict[str, Any]] = None
+
+class AllTopicsResponse(BaseModel):
+    status: str
+    topics: Dict[str, Any]
+    total_count: Optional[int] = None
+    message: Optional[str] = None
+
+@app.post("/api/topics/custom", response_model=CustomTopicResponse, tags=["Topics"])
+async def add_custom_topic(request: AddCustomTopicRequest):
+    """
+    Add a new user-defined custom topic to the vector database (HTTP endpoint wrapper)
+    
+    Args:
+        request: AddCustomTopicRequest containing topic_name, description, and optional examples
+        
+    Returns:
+        CustomTopicResponse with status, message, and topic details
+    """
+    # Call the direct function
+    result = add_custom_topic_direct(
+        topic_name=request.topic_name,
+        description=request.description,
+        examples=request.examples
+    )
+    
+    if result["status"] == "success":
+        return CustomTopicResponse(
+            status=result["status"],
+            message=result["message"],
+            topic=result.get("topic")
         )
+    else:
+        return CustomTopicResponse(
+            status=result["status"],
+            message=result["message"],
+            topic=None
+        )
+
+@app.get("/api/topics/all", response_model=AllTopicsResponse, tags=["Topics"])
+async def get_all_topics_endpoint():
+    """
+    Get all topics including custom user-defined topics (HTTP endpoint wrapper)
+    
+    Returns:
+        AllTopicsResponse with all topics and their descriptions
+    """
+    # Call the direct function
+    result = get_all_topics_direct()
+    
+    return AllTopicsResponse(
+        status=result["status"],
+        topics=result.get("topics", {}),
+        total_count=result.get("total_count"),
+        message=result.get("message")
+    )
 
 if __name__ == "__main__":
     # Run the server

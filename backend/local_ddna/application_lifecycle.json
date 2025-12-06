@@ -50,5 +50,44 @@
     "captured_at": null,
     "topic_score": 0.4464,
     "topic_description": "Application start, stop, crash, and update events"
+  },
+  {
+    "event_type": "app_state",
+    "summary": "App Code.exe - 0 windows, 2 items, 0 files",
+    "saved_at": "2025-11-12T15:56:45.520249+05:30",
+    "timestamp": "2025-11-12T15:56:45.520249+05:30",
+    "app_name": "Code.exe",
+    "exe_path": "C:\\Users\\Hp\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+    "pid": 700,
+    "window_count": 0,
+    "captured_at": null,
+    "topic_score": 0.4464,
+    "topic_description": "Application start, stop, crash, and update events"
+  },
+  {
+    "event_type": "app_state",
+    "summary": "App Code.exe - 0 windows, 2 items, 0 files",
+    "saved_at": "2025-11-12T16:18:53.154501+05:30",
+    "timestamp": "2025-11-12T16:18:53.154501+05:30",
+    "app_name": "Code.exe",
+    "exe_path": "C:\\Users\\Hp\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+    "pid": 700,
+    "window_count": 0,
+    "captured_at": null,
+    "topic_score": 0.4464,
+    "topic_description": "Application start, stop, crash, and update events"
+  },
+  {
+    "event_type": "app_state",
+    "summary": "App Code.exe - 0 windows, 2 items, 0 files",
+    "saved_at": "2025-11-26T11:15:52.821763+05:30",
+    "timestamp": "2025-11-26T11:15:52.821763+05:30",
+    "app_name": "Code.exe",
+    "exe_path": "C:\\Users\\Hp\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+    "pid": 1564,
+    "window_count": 0,
+    "captured_at": null,
+    "topic_score": 0.4464,
+    "topic_description": "Application start, stop, crash, and update events"
   }
 ]

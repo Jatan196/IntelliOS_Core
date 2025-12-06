@@ -404,6 +404,160 @@ class VectorDBManager:
             logger.error(f"Failed to query vector database: {e}")
             return []
 
+    def add_custom_topic(self, topic_name: str, description: str, examples: List[str] = None) -> Dict[str, Any]:
+        """
+        Add a new user-defined custom topic to the topics collection.
+        
+        Args:
+            topic_name: Unique name for the topic (e.g., "game_development", "cybersecurity")
+            description: Detailed description of what this topic represents
+            examples: Optional list of example text snippets that represent this topic
+            
+        Returns:
+            Dictionary with status, message, and topic details
+        """
+        try:
+            # Validate inputs
+            if not topic_name or not description:
+                return {
+                    "status": "error",
+                    "message": "Topic name and description are required"
+                }
+            
+            # Sanitize topic name (lowercase, replace spaces with underscores)
+            topic_name = topic_name.lower().strip().replace(' ', '_')
+            
+            # Check if topic already exists
+            topic_id = f"topic_{topic_name}"
+            try:
+                existing = self.topics_collection.get(ids=[topic_id])
+                if existing and existing['ids']:
+                    return {
+                        "status": "error",
+                        "message": f"Topic '{topic_name}' already exists"
+                    }
+            except:
+                pass  # Topic doesn't exist, which is what we want
+            
+            # Combine description with examples for better embedding
+            examples_text = ""
+            if examples:
+                examples_text = " Examples: " + " ".join(examples)
+            
+            document = f"{description}{examples_text}"
+            
+            # Create metadata
+            metadata = {
+                "topic": topic_name,
+                "description": description,
+                "custom": "true",  # Mark as custom topic
+            }
+            
+            # Add to topics collection
+            self.topics_collection.add(
+                ids=[topic_id],
+                documents=[document],
+                metadatas=[metadata]
+            )
+            
+            # Update the in-memory topic embeddings cache
+            embedding = self.create_embedding(document)
+            self._topic_embeddings[topic_name] = embedding
+            
+            # Create JSON file in local_ddna directory
+            json_file_created = False
+            json_file_path = None
+            try:
+                # Get the local_ddna directory path
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                local_ddna_dir = os.path.join(current_dir, 'local_ddna')
+                
+                logger.info(f"Attempting to create JSON file in: {local_ddna_dir}")
+                
+                # Create directory if it doesn't exist
+                os.makedirs(local_ddna_dir, exist_ok=True)
+                logger.info(f"Local DDNA directory ensured: {local_ddna_dir}")
+                
+                # Create JSON file for the topic
+                topic_file_path = os.path.join(local_ddna_dir, f"{topic_name}.json")
+                
+                # Initialize with empty array
+                initial_data = []
+                
+                with open(topic_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(initial_data, f, indent=2, ensure_ascii=False)
+                
+                # Verify file was created
+                if os.path.exists(topic_file_path):
+                    json_file_created = True
+                    json_file_path = topic_file_path
+                    logger.info(f"✅ Successfully created JSON file: {topic_file_path}")
+                else:
+                    logger.warning(f"⚠️ File creation returned success but file not found: {topic_file_path}")
+                
+            except Exception as e:
+                logger.error(f"❌ Could not create JSON file for topic: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                # Don't fail the whole operation if file creation fails
+            
+            logger.info(f"Successfully added custom topic: {topic_name}")
+            
+            return {
+                "status": "success",
+                "message": f"Topic '{topic_name}' added successfully",
+                "topic": {
+                    "name": topic_name,
+                    "description": description,
+                    "examples": examples or []
+                },
+                "json_file_created": json_file_created,
+                "json_file_path": json_file_path
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to add custom topic: {e}")
+            return {
+                "status": "error",
+                "message": f"Failed to add topic: {str(e)}"
+            }
+    
+    def get_all_topics(self) -> Dict[str, Any]:
+        """
+        Get all topics including custom user-defined topics.
+        
+        Returns:
+            Dictionary with all topics and their descriptions
+        """
+        try:
+            topic_data = self.topics_collection.get()
+            
+            topics = {}
+            for i, topic_id in enumerate(topic_data["ids"]):
+                metadata = topic_data["metadatas"][i]
+                topic_name = metadata.get("topic", "")
+                description = metadata.get("description", "")
+                is_custom = metadata.get("custom", "false") == "true"
+                
+                topics[topic_name] = {
+                    "description": description,
+                    "custom": is_custom
+                }
+            
+            return {
+                "status": "success",
+                "topics": topics,
+                "total_count": len(topics)
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get all topics: {e}")
+            return {
+                "status": "error",
+                "message": f"Failed to retrieve topics: {str(e)}",
+                "topics": {}
+            }
+
     def get_stats(self) -> Dict[str, Any]:
         """
         Get statistics about the vector database.

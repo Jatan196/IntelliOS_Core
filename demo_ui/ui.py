@@ -315,12 +315,35 @@ except ImportError as e:
     print(f"⚠️ Flow module not available: {e}")
     print(f"   Tried path: {FLOW_DIR}")
 
+# Import sync function from server
+try:
+    from server import sync_workspace_to_cloud_direct
+    SYNC_AVAILABLE = True
+    print(f"✅ Sync function loaded successfully from backend/server.py")
+except ImportError as e:
+    SYNC_AVAILABLE = False
+    sync_workspace_to_cloud_direct = None
+    print(f"⚠️ Sync function not available: {e}")
+    print(f"   Make sure backend/server.py is accessible")
+
+# Import custom topic functions from server
+try:
+    from server import add_custom_topic_direct, get_all_topics_direct
+    CUSTOM_TOPICS_AVAILABLE = True
+    print(f"✅ Custom topic functions loaded successfully from backend/server.py")
+except ImportError as e:
+    CUSTOM_TOPICS_AVAILABLE = False
+    add_custom_topic_direct = None
+    get_all_topics_direct = None
+    print(f"⚠️ Custom topic functions not available: {e}")
+    print(f"   Make sure backend/server.py is accessible")
+
 # Remote API configuration
 REMOTE_API_BASE_URL = "https://intellios-database.onrender.com"
 
 def sync_workspace_to_remote(username: str, workspace_name: str, state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Sync workspace data to remote DDNA database
+    Sync workspace data to remote DDNA database via direct function call
     
     Args:
         username: Username for the workspace
@@ -330,42 +353,20 @@ def sync_workspace_to_remote(username: str, workspace_name: str, state: Dict[str
     Returns:
         Response dict with status and message
     """
+    if not SYNC_AVAILABLE or sync_workspace_to_cloud_direct is None:
+        return {
+            "status": "error",
+            "message": "Sync function not available. Make sure backend modules are accessible."
+        }
+    
     try:
-        url = f"{REMOTE_API_BASE_URL}/api/workspace"
-        payload = {
-            "username": username,
-            "workspace_name": workspace_name,
-            "state": state
-        }
-        
-        response = requests.post(url, json=payload, timeout=10)
-        
-        if response.status_code == 200 or response.status_code == 201:
-            result = response.json()
-            return {
-                "status": "success",
-                "message": result.get("message", "Workspace synced successfully"),
-                "response": result
-            }
-        else:
-            return {
-                "status": "error",
-                "message": f"API returned status {response.status_code}: {response.text}"
-            }
-    except requests.exceptions.Timeout:
-        return {
-            "status": "error",
-            "message": "Request timed out. The remote server might be slow or unavailable."
-        }
-    except requests.exceptions.ConnectionError:
-        return {
-            "status": "error",
-            "message": "Could not connect to remote server. Check your internet connection."
-        }
+        # Directly call the backend function (no HTTP overhead)
+        result = sync_workspace_to_cloud_direct(username, workspace_name, state)
+        return result
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Unexpected error: {str(e)}"
+            "message": f"Error calling sync function: {str(e)}"
         }
 
 # Load workspaces from JSON file
@@ -378,7 +379,8 @@ else:
 
 lastRestored = next((ws for ws in workspaces if ws.get('lastRestored')), None)
 aiSuggestion = "Based on your usage pattern, I recommend creating a 'Research Mode' workspace for your frequent article reading sessions."
-username = "Jatan"
+# Use hardcoded username for demo
+username = "jatan_demo"
 
 # Initialize session state for continuous capture
 if 'capture_running' not in st.session_state:
@@ -672,83 +674,6 @@ if FLOW_AVAILABLE and st.session_state.recent_captures:
 
 st.markdown("---")
 
-# Workspace Cards
-st.subheader("Your Workspaces")
-for ws in workspaces:
-    with st.container():
-        st.markdown(f"<div style='background: #2d2d44; border-radius: 1rem; padding: 1rem; margin-bottom: 1rem;'>", unsafe_allow_html=True)
-        cols = st.columns([3, 1])
-        with cols[0]:
-            st.markdown(f"<span style='font-size:1.1rem; font-weight:600;'>{ws['name']}</span>", unsafe_allow_html=True)
-            st.write(f"Last used: {ws['lastUsed']}")
-            st.write(f"{' • '.join(ws['apps'])}")
-            st.write(f"{ws['files']} files • {ws['tabs']} browser tabs")
-        with cols[1]:
-            if ws.get('synced'):
-                st.success("Synced")
-            else:
-                st.warning("Not Synced")
-            
-            # Action buttons
-            btn_col1, btn_col2 = st.columns(2)
-            
-            with btn_col1:
-                if st.button(f"🔄 Restore", key=f"restore_{ws['name']}", use_container_width=True):
-                    st.warning("⚠️ Restore function not available. Feature coming soon!")
-                    # st.success(f"Workspace '{ws['name']}' restored!")
-            
-            with btn_col2:
-                if st.button(f"🗑️ Delete", key=f"delete_{ws['name']}", use_container_width=True):
-                    st.error(f"Workspace '{ws['name']}' deleted!")
-            
-            # Sync with DDNA button (full width)
-            if st.button(f"☁️ Sync with DDNA", key=f"sync_{ws['name']}", use_container_width=True, type="primary"):
-                with st.spinner(f"Syncing {ws['name']} to remote DDNA..."):
-                    # Build state object from workspace data
-                    state_data = {
-                        "saved_at": datetime.datetime.now().isoformat(),
-                        "user": username,
-                        "workspace_name": ws['name'],
-                        "apps": ws.get('apps', []),
-                        "files": ws.get('files', 0),
-                        "tabs": ws.get('tabs', 0),
-                        "lastUsed": ws.get('lastUsed', ''),
-                        "synced": ws.get('synced', False)
-                    }
-                    
-                    result = sync_workspace_to_remote(
-                        username=username,
-                        workspace_name=ws['name'],
-                        state=state_data
-                    )
-                    
-                    if result['status'] == 'success':
-                        st.success(f"✅ {result['message']}")
-                        # Update synced status
-                        ws['synced'] = True
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error(f"❌ Sync failed: {result['message']}")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# Quick Actions & Stats
-colA, colB = st.columns([1,1])
-with colA:
-    st.subheader("Quick Actions")
-    st.button("Create New Workspace")
-    st.button("Customize Preferences")
-    st.button("Sync Settings")
-with colB:
-    st.subheader("Today's Activity")
-    st.write(f"Workspaces Used: {len(workspaces)}")
-    st.write(f"Apps Launched: {sum(len(ws['apps']) for ws in workspaces)}")
-    st.write(f"Files Opened: {sum(ws['files'] for ws in workspaces)}")
-    st.write(f"Browser Tabs: {sum(ws['tabs'] for ws in workspaces)}")
-
-st.markdown("---")
-
 # Local DDNA Section
 st.subheader("🧬 Local DDNA Activity Monitoring")
 
@@ -859,6 +784,84 @@ if ddna_stats.get("status") == "success":
                             if st.button(f"🔄 Restore", key=f"restore_{topic}", use_container_width=True, type="primary"):
                                 with st.spinner(f"Restoring {topic.replace('_', ' ').title()}..."):
                                     trigger_topic_restore(topic, limit=150)
+                        
+                        # Sync with Cloud button (full width)
+                        if st.button(f"☁️ Sync with Cloud", key=f"sync_{topic}", use_container_width=True):
+                            with st.spinner(f"Syncing {topic.replace('_', ' ').title()} to cloud..."):
+                                # Get topic data
+                                topic_data = get_local_ddna_topic(topic, limit=100)
+                                
+                                if topic_data.get('status') == 'success':
+                                    logs = topic_data.get('logs', [])
+                                    
+                                    # Build state from topic logs
+                                    apps_data = []
+                                    browsers_data = []
+                                    
+                                    # Extract unique apps
+                                    apps_seen = set()
+                                    for log in logs:
+                                        if log.get('event_type', '').startswith('app') and log.get('app_name'):
+                                            app_name = log.get('app_name')
+                                            if app_name not in apps_seen:
+                                                apps_seen.add(app_name)
+                                                apps_data.append({
+                                                    'name': app_name,
+                                                    'exe': log.get('exe_path'),
+                                                    'pid': log.get('pid'),
+                                                    'items': []
+                                                })
+                                    
+                                    # Extract browser tabs
+                                    browser_tabs = {}
+                                    for log in logs:
+                                        if 'browser' in log.get('event_type', '') and 'tab' in log.get('event_type', ''):
+                                            browser_name = log.get('browser_name', 'chrome')
+                                            if browser_name not in browser_tabs:
+                                                browser_tabs[browser_name] = []
+                                            
+                                            if log.get('url'):
+                                                browser_tabs[browser_name].append({
+                                                    'url': log.get('url'),
+                                                    'title': log.get('title', log.get('summary', 'Untitled')),
+                                                    'description': log.get('summary', '')
+                                                })
+                                    
+                                    # Build browsers data
+                                    for idx, (browser_name, tabs) in enumerate(browser_tabs.items()):
+                                        if tabs:
+                                            browsers_data.append({
+                                                'browser': browser_name,
+                                                'exe': None,
+                                                'windows': [{
+                                                    'profile': 'Default',
+                                                    'debuggingPort': 9222 + idx,
+                                                    'tabs': tabs[:50]
+                                                }]
+                                            })
+                                    
+                                    state_data = {
+                                        "saved_at": datetime.datetime.now().isoformat(),
+                                        "user": username,
+                                        "apps": apps_data,
+                                        "browsers": browsers_data,
+                                        "summary": f"Topic: {topic} - {len(apps_data)} apps, {sum(len(b['windows'][0]['tabs']) for b in browsers_data)} tabs"
+                                    }
+                                    
+                                    result = sync_workspace_to_remote(
+                                        username=username,
+                                        workspace_name=f"topic_{topic}",
+                                        state=state_data
+                                    )
+                                    
+                                    if result['status'] == 'success':
+                                        st.success(f"✅ {result['message']}")
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Sync failed: {result['message']}")
+                                else:
+                                    st.warning(f"⚠️ No data available for {topic}")
     
     # Display selected topic details
     if 'selected_topic' in st.session_state:
@@ -983,6 +986,111 @@ if ddna_stats.get("status") == "success":
                         st.json(log)
         else:
             st.error(f"Error loading topic: {topic_data.get('message', 'Unknown error')}")
+    
+    # Custom Topic Creation Section
+    st.markdown("---")
+    st.subheader("➕ Create Custom Topic")
+    
+    if CUSTOM_TOPICS_AVAILABLE and add_custom_topic_direct is not None:
+        with st.expander("🎨 Add Your Own Topic", expanded=False):
+            st.markdown("""
+            Create a custom topic to classify your activities. The system will use your description 
+            to automatically match logs to this topic using AI similarity matching.
+            """)
+            
+            # Topic creation form
+            with st.form("custom_topic_form"):
+                topic_name = st.text_input(
+                    "Topic Name",
+                    placeholder="e.g., game_development, cybersecurity, video_editing",
+                    help="Use lowercase with underscores. Must be unique."
+                )
+                
+                description = st.text_area(
+                    "Description",
+                    placeholder="Describe what this topic represents. Be specific and detailed.\n\nExample: Developing and playing video games. Includes game engines like Unity or Unreal, game design tools, Steam, gaming platforms, and game development tutorials.",
+                    help="A detailed description helps the AI better match logs to this topic.",
+                    height=150
+                )
+                
+                examples = st.text_area(
+                    "Examples (Optional)",
+                    placeholder="Add example text that represents this topic, one per line.\n\nExample:\nApp: Unity.exe | Window: MyGame - Unity Editor\nTab: Unreal Engine Documentation\nTab: Steam Store",
+                    help="Optional: Provide examples of logs/activities that belong to this topic (one per line).",
+                    height=100
+                )
+                
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    submit_button = st.form_submit_button("Create Topic", use_container_width=True, type="primary")
+                with col2:
+                    if st.form_submit_button("Clear", use_container_width=True):
+                        st.rerun()
+                
+                if submit_button:
+                    if not topic_name or not description:
+                        st.error("⚠️ Topic name and description are required!")
+                    else:
+                        # Parse examples
+                        example_list = []
+                        if examples:
+                            example_list = [line.strip() for line in examples.split('\n') if line.strip()]
+                        
+                        with st.spinner(f"Creating topic '{topic_name}'..."):
+                            # Call the direct function (no HTTP overhead)
+                            result = add_custom_topic_direct(
+                                topic_name=topic_name,
+                                description=description,
+                                examples=example_list
+                            )
+                            
+                            if result.get('status') == 'success':
+                                st.success(f"✅ {result.get('message')}")
+                                
+                                # Show JSON file creation status
+                                if result.get('json_file_created'):
+                                    st.info(f"📁 Created JSON file: {result.get('json_file_path')}")
+                                else:
+                                    st.warning(f"⚠️ Topic added to vector DB, but JSON file was not created")
+                                
+                                st.balloons()
+                                time.sleep(1)
+                                # Force UI refresh to show the new topic
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {result.get('message')}")
+        
+        # Display all topics (including custom ones)
+        if st.checkbox("Show All Topics (Including Custom)", value=False):
+            with st.spinner("Loading all topics..."):
+                all_topics_result = get_all_topics_direct()
+                
+                if all_topics_result.get('status') == 'success':
+                    all_topics = all_topics_result.get('topics', {})
+                    
+                    # Separate predefined and custom topics
+                    predefined_topics = {k: v for k, v in all_topics.items() if not v.get('custom', False)}
+                    custom_topics = {k: v for k, v in all_topics.items() if v.get('custom', False)}
+                    
+                    st.markdown(f"**Total Topics:** {all_topics_result.get('total_count', 0)} "
+                              f"({len(predefined_topics)} predefined + {len(custom_topics)} custom)")
+                    
+                    if custom_topics:
+                        st.markdown("### 🎨 Custom Topics")
+                        for topic_name, topic_info in custom_topics.items():
+                            with st.expander(f"🔹 {topic_name}", expanded=False):
+                                st.markdown(f"**Description:** {topic_info.get('description', 'No description')}")
+                                st.caption("This is a user-defined custom topic")
+                    
+                    if predefined_topics:
+                        st.markdown("### 📚 Predefined Topics")
+                        for topic_name, topic_info in predefined_topics.items():
+                            with st.expander(f"🔸 {topic_name}", expanded=False):
+                                st.markdown(f"**Description:** {topic_info.get('description', 'No description')}")
+                else:
+                    st.error(f"Failed to load topics: {all_topics_result.get('message', 'Unknown error')}")
+    else:
+        st.info("ℹ️ Custom topic creation is not available. Make sure the backend server is running.")
     
     # Search functionality
     st.markdown("---")
